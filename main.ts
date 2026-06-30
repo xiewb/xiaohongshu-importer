@@ -5,6 +5,7 @@ interface XHSImporterSettings {
 	categories: string[]; // User-defined categories, excluding "其他"
 	lastCategory: string;
 	downloadMedia: boolean;
+	batchLimit: number; // Maximum number of notes to import in a single batch
 }
 
 const DEFAULT_SETTINGS: XHSImporterSettings = {
@@ -12,6 +13,7 @@ const DEFAULT_SETTINGS: XHSImporterSettings = {
 	categories: ["美食", "旅行", "娱乐", "知识", "工作", "情感", "个人成长", "优惠", "搞笑", "育儿"], // Removed "Others"
 	lastCategory: "",
 	downloadMedia: false,
+	batchLimit: 20,
 };
 
 export default class XHSImporterPlugin extends Plugin {
@@ -21,34 +23,69 @@ export default class XHSImporterPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		// Add ribbon icon to trigger note import
-		this.addRibbonIcon("book", "Import Xiaohongshu note", async () => {
+		// Shared import handler for both ribbon and command
+		const handleImport = async () => {
 			const input = await this.promptForShareText();
 			if (input && input.text) {
-				const url = this.extractURL(input.text);
-				if (url) {
-					await this.importXHSNote(url, input.category, input.downloadMedia);
-				} else {
+				const urls = this.extractAllURLs(input.text);
+				if (urls.length === 0) {
 					new Notice("No valid Xiaohongshu URL found in the text.");
+					return;
+				}
+
+				// Expand collection URLs to individual note URLs
+				const expandedUrls: string[] = [];
+				for (const url of urls) {
+					if (this.isCollectionUrl(url)) {
+						try {
+							new Notice("📚 Fetching collection notes...");
+							const collection = await this.extractCollectionNoteIds(url);
+							new Notice(`📚 Collection "${collection.name}": found ${collection.noteIds.length}/${collection.totalNotes} notes`);
+							for (const noteId of collection.noteIds) {
+								expandedUrls.push(`https://www.xiaohongshu.com/discovery/item/${noteId}`);
+							}
+							// Warn if there are more notes than we could extract
+							if (collection.totalNotes > collection.noteIds.length) {
+								new Notice(`⚠️ Collection has ${collection.totalNotes} notes but only ${collection.noteIds.length} could be extracted (pagination limit).`);
+							}
+						} catch (e) {
+							new Notice(`❌ Failed to fetch collection: ${e.message}`);
+							console.error("Collection fetch error:", e);
+						}
+					} else {
+						expandedUrls.push(url);
+					}
+				}
+
+				if (expandedUrls.length === 0) {
+					new Notice("No valid notes to import after processing.");
+					return;
+				}
+
+				// Apply batch limit
+				if (expandedUrls.length > this.settings.batchLimit) {
+					const count = expandedUrls.length;
+					expandedUrls.length = this.settings.batchLimit;
+					new Notice(`⚠️ Found ${count} URLs, limited to ${this.settings.batchLimit}. Adjust in settings.`);
+				}
+
+				if (expandedUrls.length === 1) {
+					await this.importXHSNote(expandedUrls[0], input.category, input.downloadMedia);
+				} else {
+					new Notice(`Found ${expandedUrls.length} notes, starting batch import...`);
+					await this.importBatch(expandedUrls, input.category, input.downloadMedia);
 				}
 			}
-		});
+		};
+
+		// Add ribbon icon to trigger note import
+		this.addRibbonIcon("book", "Import Xiaohongshu note(s)", handleImport);
 
 		// Add command for importing notes via command palette
 		this.addCommand({
 			id: "import",
-			name: "Import Xiaohongshu note",
-			callback: async () => {
-				const input = await this.promptForShareText();
-				if (input && input.text) {
-					const url = this.extractURL(input.text);
-					if (url) {
-						await this.importXHSNote(url, input.category, input.downloadMedia);
-					} else {
-						new Notice("No valid Xiaohongshu URL found in the text.");
-					}
-				}
-			},
+			name: "Import Xiaohongshu note(s)",
+			callback: handleImport,
 		});
 
 		// Register settings tab
@@ -73,23 +110,68 @@ export default class XHSImporterPlugin extends Plugin {
 		});
 	}
 
-	// Extract Xiaohongshu URL from share text
-	extractURL(shareText: string): string | null {
-		// First try to match mobile share links
-		const mobileUrlMatch = shareText.match(/http:\/\/xhslink\.com\/a?o?\/[^\s,，]+/);
-		if (mobileUrlMatch) {
-				return mobileUrlMatch[0];
+	// Extract all Xiaohongshu URLs from share text (supports batch + collection)
+	extractAllURLs(shareText: string): string[] {
+		const urls: string[] = [];
+		const seen = new Set<string>();
+
+		// Match mobile share links (xhslink.com)
+		const shortRegex = /https?:\/\/xhslink\.com\/a?o?\/[^\s,，]+/g;
+		for (const match of shareText.matchAll(shortRegex)) {
+			if (!seen.has(match[0])) {
+				seen.add(match[0]);
+				urls.push(match[0]);
+			}
 		}
-		
-		// Then try to match desktop/web links (both discovery/item and explore formats)
-		const webUrlMatch = shareText.match(/https:\/\/www\.xiaohongshu\.com\/(?:discovery\/item|explore)\/[a-zA-Z0-9]+(?:\?[^\s,，]*)?/);
-		if (webUrlMatch) {
-			// Normalize explore URLs to discovery/item format
-			return webUrlMatch[0].replace('/explore/', '/discovery/item/');
+
+		// Match collection links (xiaohongshu.com/collection/item/)
+		const collectionRegex = /https?:\/\/(?:www\.)?xiaohongshu\.com\/collection\/item\/[a-zA-Z0-9]+(?:\?[^\s,，]*)?/g;
+		for (const match of shareText.matchAll(collectionRegex)) {
+			if (!seen.has(match[0])) {
+				seen.add(match[0]);
+				urls.push(match[0]);
+			}
 		}
-		
-		return null;
-}
+
+		// Match desktop/web links (xiaohongshu.com — discovery/item and explore)
+		const longRegex = /https?:\/\/(?:www\.)?xiaohongshu\.com\/(?:discovery\/item|explore)\/[a-zA-Z0-9]+(?:\?[^\s,，]*)?/g;
+		for (const match of shareText.matchAll(longRegex)) {
+			const normalized = match[0].replace('/explore/', '/discovery/item/');
+			if (!seen.has(normalized)) {
+				seen.add(normalized);
+				urls.push(normalized);
+			}
+		}
+
+		return urls;
+	}
+
+	// Check if a URL is a collection URL
+	isCollectionUrl(url: string): boolean {
+		return /xiaohongshu\.com\/collection\/item\//.test(url);
+	}
+
+	// Extract note IDs from a collection page's __INITIAL_STATE__
+	async extractCollectionNoteIds(collectionUrl: string): Promise<{ name: string; noteIds: string[]; totalNotes: number }> {
+		const response = await requestUrl({ url: collectionUrl });
+		const html = response.text;
+		const stateMatch = html.match(/window\.__INITIAL_STATE__=(.*?)<\/script>/s);
+		if (!stateMatch) throw new Error("Failed to parse collection page: __INITIAL_STATE__ not found");
+
+		const cleanedJson = stateMatch[1].trim().replace(/undefined/g, "null");
+		const state = JSON.parse(cleanedJson);
+		const collectionData = state.noteData?.collectionData;
+		if (!collectionData || !collectionData.noteList) {
+			throw new Error("Failed to parse collection data from page");
+		}
+
+		const noteIds: string[] = collectionData.noteList.map((note: any) => note.id);
+		return {
+			name: collectionData.name || "Unknown Collection",
+			noteIds,
+			totalNotes: collectionData.noteNum || noteIds.length,
+		};
+	}
 
 	// Sanitize title for media filenames, removing emojis and special characters
 	sanitizeFilename(title: string): string {
@@ -114,6 +196,38 @@ export default class XHSImporterPlugin extends Plugin {
 			console.log(`Failed to download media from ${url}: ${error.message}`);
 			new Notice(`Failed to download media: ${error.message}`);
 			return url; // Fallback to original URL
+		}
+	}
+
+	// Batch import multiple Xiaohongshu notes with progress and error isolation
+	async importBatch(urls: string[], category: string, downloadMedia: boolean) {
+		const total = urls.length;
+		let success = 0;
+		const failedUrls: string[] = [];
+		const progressNotice = new Notice(`📥 Importing 0/${total}...`, 0);
+
+		for (let i = 0; i < total; i++) {
+			progressNotice.setMessage(`📥 Importing ${i + 1}/${total}...`);
+			try {
+				await this.importXHSNote(urls[i], category, downloadMedia);
+				success++;
+			} catch (e) {
+				failedUrls.push(urls[i]);
+				console.error(`Batch import failed [${i + 1}/${total}]: ${urls[i]} - ${e.message}`);
+			}
+			// Rate limit: 1.5s delay between requests to avoid being blocked
+			if (i < total - 1) {
+				await new Promise((r) => setTimeout(r, 1500));
+			}
+		}
+
+		progressNotice.hide();
+
+		if (failedUrls.length === 0) {
+			new Notice(`✅ Batch import done: ${success}/${total} succeeded.`);
+		} else {
+			new Notice(`⚠️ Batch import done: ${success}/${total} succeeded, ${failedUrls.length} failed. Check console for details.`);
+			console.log("Failed URLs:", failedUrls);
 		}
 	}
 
@@ -399,6 +513,23 @@ class XHSImporterSettingTab extends PluginSettingTab {
 					})
 			);
 
+		// Batch limit setting
+		new Setting(containerEl)
+			.setName("Batch limit")
+			.setDesc("Maximum number of notes to import in a single batch operation (default: 20).")
+			.addText((text) =>
+				text
+					.setPlaceholder("20")
+					.setValue(String(this.plugin.settings.batchLimit))
+					.onChange(async (value) => {
+						const num = parseInt(value, 10);
+						if (!isNaN(num) && num > 0) {
+							this.plugin.settings.batchLimit = num;
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
 		// Category management
 		new Setting(containerEl)
 			.setName("Categories")
@@ -495,14 +626,14 @@ class XHSInputModal extends Modal {
 		// Apply CSS class to modal content
 		contentEl.addClass("xhs-modal-content");
 
-		contentEl.createEl("h2", { text: "Import Xiaohongshu note" });
+		contentEl.createEl("h2", { text: "Import Xiaohongshu note(s)" });
 
-		// Share text input
+		// Share text input (supports batch: multiple URLs or share texts)
 		const textRow = contentEl.createEl("div", { cls: "xhs-modal-row" });
-		textRow.createEl("p", { text: "Paste the share text below:" });
+		textRow.createEl("p", { text: "Paste share text(s) below — supports multiple URLs for batch import:" });
 		const input = textRow.createEl("textarea", {
 			cls: "xhs-modal-textarea",
-			attr: { placeholder: "e.g., 64 不叫小黄了发布了一篇小红书笔记..." },
+			attr: { placeholder: "Paste one or more share texts here...\nSupports: note URLs, share texts, collection URLs.\n\nExamples:\n64 不叫小黄了发布了一篇小红书笔记...\nhttps://www.xiaohongshu.com/explore/xxx\nhttps://www.xiaohongshu.com/collection/item/xxx" },
 		});
 
 		// Category selection

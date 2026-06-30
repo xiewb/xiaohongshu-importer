@@ -1,8 +1,8 @@
 # Xiaohongshu Importer for Obsidian
 
-**Version**: 1.1.3  
+**Version**: 1.2.0  
 **Author**: bnchiang96  
-**Repository**: [https://github.com/bnchiang96/xiaohongshu-importer](https://github.com/bnchiang96/xiaohongshu-importer)  
+**Repository**: [https://github.com/xiewb/xiaohongshu-importer](https://github.com/xiewb/xiaohongshu-importer)  
 **License**: MIT
 
 **[中文版本](#chinese-readme)** (Scroll to the Chinese version)
@@ -16,11 +16,14 @@ The plugin supports multiple Xiaohongshu link formats, including newer `explore`
 ## Features
 
 - **Import Xiaohongshu Notes**: Import notes by pasting a share link or share text (supports both `discovery/item` and `explore` URLs), including title, content, images, videos, and tags.
+- **Batch Import**: Paste multiple share texts or URLs at once — the plugin automatically extracts all Xiaohongshu links and imports them sequentially with progress tracking.
+- **Collection Support**: Paste a collection URL (`/collection/item/...`) to automatically expand and import all notes in the collection.
+- **Batch Limit**: Configure the maximum number of notes per batch operation (default: 20) in settings.
 - **Category Management**: Organize notes into user-defined categories (e.g., "Travel", "Food") or a default "Others" category.
 - **Media Download**: Optionally download images and videos locally to your vault, or embed them using their original URLs.
 - **Custom Folder Structure**: Save notes in a structured folder hierarchy (e.g., `XHS Notes/Travel/NoteTitle.md`).
 - **User-Friendly Interface**: Use a modal to input share text, select categories, and choose media download options.
-- **Settings Customization**: Configure the default folder, media download preference, and manage categories in the settings tab.
+- **Settings Customization**: Configure the default folder, media download preference, batch limit, and manage categories in the settings tab.
 
 ## Installation
 
@@ -169,7 +172,7 @@ This plugin is licensed under the MIT License. See the [LICENSE](LICENSE) file f
 
 **版本**：1.1.3  
 **作者**：bnchiang96  
-**代码仓库**：[https://github.com/bnchiang96/xiaohongshu-importer](https://github.com/bnchiang96/xiaohongshu-importer)  
+**代码仓库**：[https://github.com/xiewb/xiaohongshu-importer](https://github.com/xiewb/xiaohongshu-importer)  
 **许可证**：MIT
 
 ## 概述
@@ -179,11 +182,14 @@ This plugin is licensed under the MIT License. See the [LICENSE](LICENSE) file f
 ## 功能
 
 - **导入小红书笔记**：通过粘贴分享链接或分享文本，导入笔记，包括标题、内容、图片、视频和标签。
-- **分类管理**：将笔记组织到用户自定义的分类中（例如“旅行”、“美食”），或使用默认的“其他”分类。
+- **批量导入**：一次粘贴多条分享文本或链接，插件自动提取所有小红书链接并逐条导入，带进度追踪。
+- **合集下载**：粘贴合集链接（`/collection/item/...`），自动展开并导入合集中的所有笔记。
+- **批量限制**：在设置中配置单次批量操作的最大笔记数（默认：20）。
+- **分类管理**：将笔记组织到用户自定义的分类中（例如"旅行"、"美食"），或使用默认的"其他"分类。
 - **媒体下载**：可选择将图片和视频下载到本地知识库，或使用原始 URL 嵌入媒体。
 - **自定义文件夹结构**：将笔记保存到结构化的文件夹层次中（例如 `XHS Notes/Travel/NoteTitle.md`）。
 - **用户友好的界面**：通过弹窗输入分享文本、选择分类和媒体下载选项。
-- **设置自定义**：在设置页面中配置默认文件夹、媒体下载偏好和分类管理。
+- **设置自定义**：在设置页面中配置默认文件夹、媒体下载偏好、批量限制和分类管理。
 
 ## 安装
 
